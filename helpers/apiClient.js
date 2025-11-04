@@ -1,8 +1,9 @@
 import axios from "axios";
+import config from "../playwright.config.js";
 
 function createApiClient(token) {
   const apiClient = axios.create({
-    baseURL: "https://apichallenges.herokuapp.com",
+    baseURL: config.use.baseURL,
     timeout: 5000,
     headers: { "Content-Type": "application/json" },
   });
