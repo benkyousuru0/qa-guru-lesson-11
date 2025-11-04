@@ -1,10 +1,12 @@
 import { test, expect } from "@playwright/test";
-import challengerController from "../controllers/challengerController.js";
-import todosBuilder from "../helpers/builders/todosBuilder.js";
-import todosController from "../controllers/todosController.js";
-import ERRORS from "../helpers/errorMessages.js";
 import { parseStringPromise } from "xml2js";
+
+import challengerController from "../controllers/challengerController.js";
 import heartbeatController from "../controllers/heartbeatController.js";
+import todosController from "../controllers/todosController.js";
+
+import ERRORS from "../helpers/errorMessages.js";
+import todosBuilder from "../helpers/builders/todosBuilder.js";
 
 test.describe("Challenger API", () => {
 
