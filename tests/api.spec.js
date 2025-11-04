@@ -275,7 +275,6 @@ test.describe("Challenger API", () => {
     try {
       const todoDataUpdate = todosBuilder.updateTodoWithoutTitle();
       await todosController.putUpdateTodo(todosBuilder.existentId, todoDataUpdate);
-      expect(responseUpdate.status).toBe(200);
       throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
     } catch (error) {
       expect(error.response).toBeDefined();
@@ -361,8 +360,7 @@ test.describe("Challenger API", () => {
 
   test("30. GET /todos (406) @get @negative", async () => {
     try {
-      const response = await todosController.getTodos({ headers: { Accept: "application/gzip" } });
-      expect(response.status).toBe(200);
+      await todosController.getTodos({ headers: { Accept: "application/gzip" } });
       throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
     } catch (error) {
       expect(error.response).toBeDefined();
@@ -412,8 +410,7 @@ test.describe("Challenger API", () => {
     const unsupportedType = "bob";
     try {
       const todoData = todosBuilder.createRandomTodo();
-      const response = await todosController.createTodo(todoData, { headers: { "Content-Type": unsupportedType } });
-      expect(response.status).toBe(200);
+      await todosController.createTodo(todoData, { headers: { "Content-Type": unsupportedType } });
       throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
     } catch (error) {
       expect(error.response).toBeDefined();
