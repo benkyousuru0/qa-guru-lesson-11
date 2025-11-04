@@ -1,0 +1,25 @@
+# Node modules
+node_modules/
+
+# Env files
+# .env
+# .env.local
+# .env.*.local
+
+# Playwright test reports
+test-results/
+playwright-report/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Optional: Editor files
+.vscode/
+.idea/
