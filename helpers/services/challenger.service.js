@@ -22,7 +22,7 @@ export class ChallengerService {
   async createChallenger() {
     return test.step("POST /challenger", async () => {
       const response = await this.request.post(`${this.baseURL}/challenger`);
-      this.token = response.headers()["x-challenger"]; // сохраняем токен
+      this.token = response.headers()["x-challenger"]; 
       console.log("Получен токен:", this.token);
       return response;
     });
