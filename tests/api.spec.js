@@ -1,34 +1,31 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, request as pwRequest } from "@playwright/test";
 import { parseStringPromise } from "xml2js";
+import config from "../playwright.config.js";
 
-import challengerController from "../controllers/challengerController.js";
-import heartbeatController from "../controllers/heartbeatController.js";
-import todosController from "../controllers/todosController.js";
+import { Api } from "../helpers/services/api.service.js";
 
 import ERRORS from "../helpers/errorMessages.js";
 import todosBuilder from "../helpers/builders/todosBuilder.js";
 
-test.describe("Challenger API", () => {
+test.describe("Challenger API", () => { 
 
-  let xChallengerToken; 
+  let api;
+  let token;
+
+  let apiContext;
 
   test.beforeAll(async () => {
-    const response = await challengerController.createChallenger();
-    expect(response.status).toBe(201);
+    apiContext = await pwRequest.newContext({ baseURL: config.use.baseURL });
+    api = new Api(apiContext, config.use.baseURL);
 
-    const token = response.headers["x-challenger"];
-    expect(token).toBeDefined();
-    expect(token).not.toHaveLength(0);
+    const createResp = await api.challenger.createChallenger();
+    token = createResp.headers()["x-challenger"];
 
-    xChallengerToken = token;
-    console.log("X-CHALLENGER token received:", xChallengerToken);
-
-    todosController.setToken(xChallengerToken);
-    challengerController.setToken(xChallengerToken);
+    api.setToken(token);
   });
 
   test("02. GET /challenges (200) @get @positive", async () => {
-    const response = await challengerController.getChallenges();
+    const response = await api.challenger.getChallenges();
     expect(response.status).toBe(200);
 
     const body = response.data;
@@ -36,7 +33,7 @@ test.describe("Challenger API", () => {
   });
 
   test("03. GET /todos (200) @get @positive", async () => {
-    const response = await todosController.getTodos();
+    const response = await api.todos.getTodos();
     expect(response.status).toBe(200);
 
     const body = response.data;
@@ -44,16 +41,12 @@ test.describe("Challenger API", () => {
   });
 
   test("04. GET /todo (404) not plural @get @negative", async () => {
-    try {
-      await todosController.getTodoInvalidEndpoint();
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response.status).toBe(404);
-    }
+    const response = await api.todos.getTodoInvalidEndpoint(); 
+    expect(response.status).toBe(404);
   });
 
   test("05. GET /todos/{id} (200) @get @positive", async () => {
-    const response = await todosController.getTodoById(todosBuilder.existentId);
+    const response = await api.todos.getTodoById(todosBuilder.existentId);
     expect(response.status).toBe(200);
 
     const body = response.data;
@@ -67,24 +60,20 @@ test.describe("Challenger API", () => {
 
   test("06. GET /todos/{id} (404) @get @negative", async () => {
     const randomId = todosBuilder.generateRandomNumberId();
-    try {
-      await todosController.getTodoById(randomId);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response.status).toBe(404);
-      expect(error.response.data.errorMessages).toContain(ERRORS.NOT_FOUND_INSTANCE(randomId));
-    }
+    const response = await api.todos.getTodoById(randomId);;
+    expect(response.status).toBe(404);
+    expect(response.data.errorMessages).toContain(ERRORS.NOT_FOUND_INSTANCE(randomId));
   });
   
   test("07. GET /todos (200) ?filter @get @positive", async () => {
     const todoData = todosBuilder.createRandomTodo({ doneStatus: true });
-    const createResp = await todosController.createTodo(todoData);
+    const createResp = await api.todos.createTodo(todoData);
     expect(createResp.status).toBe(201);
     expect(createResp.data.doneStatus).toBe(true);
     const taskID = createResp.data.id;
 
     const filterParams = todosBuilder.createFilterDone();
-    const listResp = await todosController.getTodos({ params: filterParams });
+    const listResp = await api.todos.getTodos({ params: filterParams });
     expect(listResp.status).toBe(200);
     const todos = listResp.data.todos;
     expect(todos.length).toBeGreaterThan(0);
@@ -100,17 +89,18 @@ test.describe("Challenger API", () => {
   });
 
   test("08. HEAD /todos (200) @head @positive", async () => {
-    const response = await todosController.headTodos();
+    const response = await api.todos.headTodos();
     expect(response.status).toBe(200);
 
-    expect(response.data).toBe(""); 
+    expect(response.data).toBeUndefined(); 
     expect(response.headers).toHaveProperty("content-type");
     expect(response.headers).toHaveProperty("x-challenger");
+
   });
 
   test("09. POST /todos (201) @post @positive", async () => {
     const todoData = todosBuilder.createRandomTodo({ doneStatus: true });
-    const response = await todosController.createTodo(todoData);
+    const response = await api.todos.createTodo(todoData);
 
     expect(response.status).toBe(201);
     expect(response.data).toHaveProperty("id");
@@ -120,44 +110,27 @@ test.describe("Challenger API", () => {
 
   test("10. POST /todos (400) doneStatus @post @negative", async () => {
     const invalidTodoData = todosBuilder.createRandomTodo({ doneStatus: "invalid" });
-
-    try {
-      await todosController.createTodo(invalidTodoData);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(400);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.DONE_STATUS_TYPE); 
-    }
+    const response = await api.todos.createTodo(invalidTodoData);
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.DONE_STATUS_TYPE);
   });
 
   test("11. POST /todos (400) title too long @post @negative", async () => {
     const invalidTodoData = todosBuilder.createRandomTodo({ title: todosBuilder.generateLongString(55) });
-
-    try {
-      await todosController.createTodo(invalidTodoData);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(400);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.TITLE_LENGTH_EXCEEDED); 
-    }
+    const response = await api.todos.createTodo(invalidTodoData);
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.TITLE_LENGTH_EXCEEDED);
   });
 
   test("12. POST /todos (400) description too long @post @negative", async () => {
     const invalidTodoData = todosBuilder.createRandomTodo({ description: todosBuilder.generateLongString(205) });
 
-    try {
-      await todosController.createTodo(invalidTodoData);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(400);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.DESCRIPTION_LENGTH_EXCEEDED); 
-    }
+    const response = await api.todos.createTodo(invalidTodoData);
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.DESCRIPTION_LENGTH_EXCEEDED); 
   });
 
   test("13. POST /todos (201) max out content @post @positive", async () => {
@@ -165,7 +138,7 @@ test.describe("Challenger API", () => {
       title: todosBuilder.generateLongString(50), 
       description: todosBuilder.generateLongString(200) 
     });
-    const response = await todosController.createTodo(todoData);
+    const response = await api.todos.createTodo(todoData);
 
     expect(response.status).toBe(201);
     expect(response.data).toHaveProperty("id");
@@ -176,45 +149,30 @@ test.describe("Challenger API", () => {
   test("14. POST /todos (413) content too long @post @negative", async () => {
     const invalidTodoData = todosBuilder.createRandomTodo({ description: todosBuilder.generateLongString(5000) });
 
-    try {
-      await todosController.createTodo(invalidTodoData);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(413);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.REQUEST_BODY_TOO_LARGE); 
-    }
+    const response = await api.todos.createTodo(invalidTodoData);
+    expect(response.status).toBe(413);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.REQUEST_BODY_TOO_LARGE); 
   });
 
   test("15. POST /todos (400) extra @post @negative", async () => {
     const invalidTodoData = todosBuilder.createRandomTodo({ descriptionTest: todosBuilder.generateLongString(1) });
-
-    try {
-      await todosController.createTodo(invalidTodoData);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(400);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.COULD_NOT_FIND_FIELD("descriptionTest")); }
+    const response = await api.todos.createTodo(invalidTodoData);
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.COULD_NOT_FIND_FIELD("descriptionTest")); 
   });
 
   test("16. PUT /todos/{id} (400) @put @negative", async () => {
-    try {
-      await todosController.putTodo(todosBuilder.generateRandomNumberId(), todosBuilder.createRandomTodo());
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(400);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.ERROR_CREATE_TODO_WITH_PUT); 
-    }
+    const response = await api.todos.putTodo(todosBuilder.generateRandomNumberId(), todosBuilder.createRandomTodo());
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.ERROR_CREATE_TODO_WITH_PUT);
   });
   
   test("17. POST /todos/{id} (200) @post @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
-    const response = await todosController.postUpdateTodo(todosBuilder.existentId, todoData);
+    const response = await api.todos.postUpdateTodo(todosBuilder.existentId, todoData);
 
     expect(response.status).toBe(200);
     const body = response.data;
@@ -226,20 +184,15 @@ test.describe("Challenger API", () => {
 
   test("18. POST /todos/{id} (404) @post @negative", async () => {
     const id = todosBuilder.generateRandomNumberId();
-    try {
-      await todosController.postUpdateTodo(id, todosBuilder.createRandomTodo());
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(404);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.NO_SUCH_ENTITY(id)); 
-    }
+    const response = await api.todos.postUpdateTodo(id, todosBuilder.createRandomTodo());
+    expect(response.status).toBe(404);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.NO_SUCH_ENTITY(id));    
   });
 
   test("19. PUT /todos/{id} full (200) @put @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
-    const response = await todosController.putUpdateTodo(todosBuilder.existentId, todoData);
+    const response = await api.todos.putTodo(todosBuilder.existentId, todoData);
     expect(response.status).toBe(200);
 
     const body = response.data;
@@ -251,7 +204,7 @@ test.describe("Challenger API", () => {
 
   test("20. PUT /todos/{id} partial (200) @put @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
-    const response = await todosController.putUpdateTodo(todosBuilder.existentId, todoData);
+    const response = await api.todos.putTodo(todosBuilder.existentId, todoData);
     expect(response.status).toBe(200);
     
     const body = response.data;
@@ -261,7 +214,7 @@ test.describe("Challenger API", () => {
     expect(body.description).toEqual(todoData.description);
 
     const todoDataUpdate = todosBuilder.updatePartialTodo();
-    const responseUpdate = await todosController.putUpdateTodo(todosBuilder.existentId, todoDataUpdate);
+    const responseUpdate = await api.todos.putTodo(todosBuilder.existentId, todoDataUpdate);
     expect(responseUpdate.status).toBe(200);
 
     const bodyUpdate = responseUpdate.data;
@@ -272,34 +225,27 @@ test.describe("Challenger API", () => {
   });
 
   test("21. PUT /todos/{id} no title (400) @put @negative", async () => {
-    try {
-      const todoDataUpdate = todosBuilder.updateTodoWithoutTitle();
-      await todosController.putUpdateTodo(todosBuilder.existentId, todoDataUpdate);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(400);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.TITLE_IS_MANDATORY); 
-    }
+    const todoDataUpdate = todosBuilder.updateTodoWithoutTitle();
+    const response = await api.todos.putTodo(todosBuilder.existentId, todoDataUpdate);
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.TITLE_IS_MANDATORY); 
   });
 
   test("23. DELETE /todos/{id} (200) @delete @positive", async () => {
-    const response = await todosController.deleteTodo(todosBuilder.existentId);
-    expect(response.status).toBe(200);
-    
-    try {
-      await todosController.getTodoById(todosBuilder.existentId);
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response.status).toBe(404);
-      expect(error.response.data.errorMessages).toContain(ERRORS.NOT_FOUND_INSTANCE(todosBuilder.existentId)
-      ); 
-    }
+    const responseDelete = await api.todos.deleteTodo(todosBuilder.existentId);
+    expect(responseDelete.status).toBe(200);
+
+    const responseGet = await api.todos.getTodoById(todosBuilder.existentId);
+    expect(responseGet.status).toBe(404);
+    expect(responseGet.data.errorMessages).toContain(
+      ERRORS.NOT_FOUND_INSTANCE(todosBuilder.existentId)
+    );
+
   });
 
   test("24. OPTIONS /todos (200) @options @positive", async () => {
-    const response = await todosController.optionsTodos(todosBuilder.existentId);
+    const response = await api.todos.optionsTodos(todosBuilder.existentId);
     expect(response.status).toBe(200);
 
     const allow = response.headers["allow"];
@@ -309,7 +255,7 @@ test.describe("Challenger API", () => {
   });
 
   test("25. GET /todos (200) XML @get @positive", async () => {
-    const response = await todosController.getTodos({ headers: { Accept: "application/xml" } });
+    const response = await api.todos.getTodos({ headers: { Accept: "application/xml" } });
     expect(response.status).toBe(200);
 
     const allow = response.headers["content-type"];;
@@ -319,7 +265,7 @@ test.describe("Challenger API", () => {
   });
 
   test("26. GET /todos (200) JSON @get @positive", async () => {
-    const response = await todosController.getTodos({ headers: { Accept: "application/json" } });
+    const response = await api.todos.getTodos({ headers: { Accept: "application/json" } });
     expect(response.status).toBe(200);
 
     const allow = response.headers["content-type"];;
@@ -329,7 +275,7 @@ test.describe("Challenger API", () => {
   });
 
   test("27. GET /todos (200) ANY @get @positive", async () => {
-    const response = await todosController.getTodos({ headers: { Accept: "*/*" } });
+    const response = await api.todos.getTodos({ headers: { Accept: "*/*" } });
     expect(response.status).toBe(200);
 
     const allow = response.headers["content-type"];;
@@ -339,7 +285,7 @@ test.describe("Challenger API", () => {
   });
 
   test("28. GET /todos (200) XML pref @get @positive", async () => {
-    const response = await todosController.getTodos({ headers: { Accept: "application/xml, application/json" } });
+    const response = await api.todos.getTodos({ headers: { Accept: "application/xml, application/json" } });
     expect(response.status).toBe(200);
 
     const allow = response.headers["content-type"];;
@@ -349,7 +295,7 @@ test.describe("Challenger API", () => {
   });
 
   test("29. GET /todos (200) no accept @get @positive", async () => {
-    const response = await todosController.getTodos();
+    const response = await api.todos.getTodos();
     expect(response.status).toBe(200);
 
     const allow = response.headers["content-type"];;
@@ -359,44 +305,34 @@ test.describe("Challenger API", () => {
   });
 
   test("30. GET /todos (406) @get @negative", async () => {
-    try {
-      await todosController.getTodos({ headers: { Accept: "application/gzip" } });
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(406);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.UNRECOGNISED_ACCEPT_TYPE); 
-    }
+    const response = await api.todos.getTodos({ headers: { Accept: "application/gzip" } });
+    expect(response.status).toBe(406);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.UNRECOGNISED_ACCEPT_TYPE); 
   });
 
   test("31. POST /todos XML @post @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
     const xmlBody = todosBuilder.createTodoXml(todoData);
-    const response = await todosController.createTodo(xmlBody, {
-      headers: {
-        "Accept": "application/xml",
-        "Content-Type": "application/xml"
-      }
+    const response = await api.todos.createTodo(xmlBody, {
+      "Accept": "application/xml",
+      "Content-Type": "application/xml"
     });
 
     expect(response.status).toBe(201);
     expect(response.headers["content-type"]).toContain("application/xml");
 
-    const parsed = await parseStringPromise(response.data, { explicitArray: false });
+    expect(response.data).toHaveProperty("todo.id");
+    expect(response.data.todo.title).toBe(todoData.title);
+    expect(response.data.todo.doneStatus).toBe(String(todoData.doneStatus));
 
-    expect(parsed).toHaveProperty("todo.id");
-    expect(parsed.todo.title).toBe(todoData.title);
-    expect(parsed.todo.doneStatus).toBe(String(todoData.doneStatus));
   });
 
   test("32. POST /todos JSON @post @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
-    const response = await todosController.createTodo(todoData, {
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-      }
+    const response = await api.todos.createTodo(todoData, {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
     });
 
     expect(response.status).toBe(201);
@@ -408,27 +344,23 @@ test.describe("Challenger API", () => {
 
   test("33. POST /todos (415) @post @negative", async () => {
     const unsupportedType = "bob";
-    try {
-      const todoData = todosBuilder.createRandomTodo();
-      await todosController.createTodo(todoData, { headers: { "Content-Type": unsupportedType } });
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(415);
-      expect(Array.isArray(error.response.data.errorMessages)).toBe(true);
-      expect(error.response.data.errorMessages).toContain(ERRORS.UNSUPPORTED_CONTENT_TYPE(unsupportedType)); 
-    }
+    const todoData = todosBuilder.createRandomTodo();
+    const response = await api.todos.createTodo(todoData, { "Content-Type": unsupportedType });
+
+    expect(response).toBeDefined();
+    expect(response.status).toBe(415);
+    expect(Array.isArray(response.data.errorMessages)).toBe(true);
+    expect(response.data.errorMessages).toContain(ERRORS.UNSUPPORTED_CONTENT_TYPE(unsupportedType));
   });
 
   test("39. POST /todos XML to JSON @post @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
     const xmlBody = todosBuilder.createTodoXml(todoData);
-    const response = await todosController.createTodo(xmlBody, {
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/xml"
-      }
+    const response = await api.todos.createTodo(xmlBody, {
+      "Accept": "application/json",
+      "Content-Type": "application/xml"
     });
+
     expect(response.status).toBe(201);
     expect(response.headers["content-type"]).toContain("application/json");
     expect(response.data).toHaveProperty("id");
@@ -438,56 +370,44 @@ test.describe("Challenger API", () => {
 
   test("40. POST /todos JSON to XML @post @positive", async () => {
     const todoData = todosBuilder.createRandomTodo();
-    const response = await todosController.createTodo(todoData, {
-      headers: {
-        "Accept": "application/xml",
-        "Content-Type": "application/json"
-      }
+    const response = await api.todos.createTodo(todoData, {
+      "Accept": "application/xml",
+      "Content-Type": "application/json"
     });
 
     expect(response.status).toBe(201);
     expect(response.headers["content-type"]).toContain("application/xml");
 
-    const parsed = await parseStringPromise(response.data, { explicitArray: false });
-
-    expect(parsed).toHaveProperty("todo.id");
-    expect(parsed.todo.title).toBe(todoData.title);
-    expect(parsed.todo.doneStatus).toBe(String(todoData.doneStatus));
+    expect(response.data).toHaveProperty("todo.id");
+    expect(response.data.todo.title).toBe(todoData.title);
+    expect(response.data.todo.doneStatus).toBe(String(todoData.doneStatus));
   });
 
   test("41. DELETE /heartbeat (405) @delete @negative", async () => {
-    try {
-      await heartbeatController.deleteHeartbeat();
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(405);
-    }
+    const response = await api.heartbeat.deleteHeartbeat();
+    expect(response).toBeDefined();
+    expect(response.status).toBe(405);
   });
 
-  test("42. PATCH /heartbeat (500) @patch @negative", async () => {    
-    try {
-      await heartbeatController.patchHeartbeat();
-      throw new Error(ERRORS.REQUEST_SHOULD_FAIL);
-    } catch (error) {
-      expect(error.response).toBeDefined();
-      expect(error.response.status).toBe(500);
-    }
+  test("42. PATCH /heartbeat (500) @patch @negative", async () => {
+    const response = await api.heartbeat.patchHeartbeat();
+    expect(response).toBeDefined();
+    expect(response.status).toBe(500);
   });
 
   test("58. DELETE /todos/{id} (200) all @delete @positive", async () => {
-    const response = await todosController.getTodos();
+    const response = await api.todos.getTodos();
     expect(response.status).toBe(200);
     const todos = response.data.todos;
-  
+
     expect(Array.isArray(todos)).toBe(true);
 
     for (const todo of todos) {
-      const deleteResponse = await todosController.deleteTodo(todo.id);
+      const deleteResponse = await api.todos.deleteTodo(todo.id);
       expect(deleteResponse.status).toBe(200);
     }
 
-    const finalResponse = await todosController.getTodos();
+    const finalResponse = await api.todos.getTodos();
     expect(finalResponse.status).toBe(200);
     expect(finalResponse.data.todos).toHaveLength(0);
   });
