@@ -4,7 +4,14 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "npx playwright test"
+    "test": "npx playwright test",
+    "t:get": "playwright test --grep @get",
+    "t:post": "playwright test --grep @post",
+    "t:delete": "playwright test --grep @delete",
+    "t:patch": "playwright test --grep @patch",
+    "t:options": "playwright test --grep @options",
+    "t:positive": "playwright test --grep @positive",
+    "t:negative": "playwrignpht test --grep @negative"
   },
   "repository": {
     "type": "git",
